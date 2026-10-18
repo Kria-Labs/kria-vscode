@@ -2,7 +2,7 @@
 
 All notable changes to the "kria" extension will be documented in this file.
 
-## [1.5.0] - Unreleased
+## [1.5.0] - 2026-10-18
 
 ### Fixed
 - Completion, syntax highlighting, built-in navigation, and documentation for Kria logical operators and built-ins
