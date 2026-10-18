@@ -2,7 +2,7 @@
   "name": "kria",
   "displayName": "Kria Programming Language",
   "description": "Professional IDE features for Kria: syntax highlighting, diagnostics, formatting, autocomplete, and more",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "publisher": "Piotriox",
   "icon": "kria.png",
   "repository": {
@@ -53,7 +53,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile",
+    "test": "npm run compile && node --test",
     "vscode:prepublish": "npm run compile"
   }
 }

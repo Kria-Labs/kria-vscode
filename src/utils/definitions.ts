@@ -9,8 +9,8 @@ export const BUILTIN_FUNCTIONS = {
     snippet: 'print(${1:value})'
   },
   input: {
-    signature: 'input<T>(prompt: string): T',
-    documentation: 'Get user input from the console. Use input<str>, input<int>, or input<float>',
+    signature: 'input<str | int | float>(prompt: string): input value',
+    documentation: 'Read a value from standard input. The type selector accepts str, int, float, or a | separated union such as input<int|float|str>. These selectors do not declare general variable types.',
     kind: vscode.CompletionItemKind.Function,
     snippet: 'input<${1:str}>(${2:"prompt"})'
   },
@@ -34,7 +34,7 @@ export const BUILTIN_FUNCTIONS = {
   },
   type: {
     signature: 'type(value: any): string',
-    documentation: 'Get the type of a value. Returns "number", "string", "boolean", "array", "object", or "null"',
+    documentation: 'Get the type of a value. Returns "number", "string", "boolean", "function", "array", "object", or "null"',
     kind: vscode.CompletionItemKind.Function,
     snippet: 'type(${1:value})'
   },
@@ -88,12 +88,32 @@ export const KEYWORDS = {
     documentation: 'Skip to the next iteration of a loop',
     kind: vscode.CompletionItemKind.Keyword
   },
+  in: {
+    documentation: 'Separate the loop variable(s) from the iterable in a for-in loop',
+    kind: vscode.CompletionItemKind.Keyword
+  },
+  and: {
+    documentation: 'Logical AND operator; both operands must be booleans',
+    kind: vscode.CompletionItemKind.Operator
+  },
+  or: {
+    documentation: 'Logical OR operator; both operands must be booleans',
+    kind: vscode.CompletionItemKind.Operator
+  },
+  not: {
+    documentation: 'Logical NOT operator; its operand must be a boolean',
+    kind: vscode.CompletionItemKind.Operator
+  },
   export: {
-    documentation: 'Export a function or variable for use in other modules',
+    documentation: 'Export a function for use by modules that import this file',
     kind: vscode.CompletionItemKind.Keyword
   },
   import: {
     documentation: 'Import a module. Use: import name from "./path.krx"',
+    kind: vscode.CompletionItemKind.Keyword
+  },
+  from: {
+    documentation: 'Separate the imported module alias from its relative .krx path',
     kind: vscode.CompletionItemKind.Keyword
   },
   true: {
@@ -110,53 +130,31 @@ export const KEYWORDS = {
   }
 };
 
-// Array Methods and Properties
-export const ARRAY_METHODS = [
-  {
-    name: 'push',
-    documentation: 'Add item to array',
-    snippet: 'push(${1:item})',
-    kind: vscode.CompletionItemKind.Function
-  },
-  {
-    name: 'pop',
-    documentation: 'Remove last item from array',
-    snippet: 'pop()',
-    kind: vscode.CompletionItemKind.Function
-  },
+// Array properties
+export const ARRAY_PROPERTIES = [
   {
     name: 'length',
-    documentation: 'Get array length',
+    documentation: 'Get the length of an array',
     snippet: 'length',
     kind: vscode.CompletionItemKind.Property
   }
 ];
 
-// Object Methods and Properties
-export const OBJECT_METHODS = [
-  {
-    name: 'rmv',
-    documentation: 'Remove property from object',
-    snippet: 'rmv(${1:property})',
-    kind: vscode.CompletionItemKind.Function
-  }
-];
-
-// Generic Types
-export const GENERIC_TYPES = [
+// Input type selectors
+export const INPUT_TYPES = [
   {
     name: 'str',
-    documentation: 'String type',
+    documentation: 'Read input as a string',
     kind: vscode.CompletionItemKind.TypeParameter
   },
   {
     name: 'int',
-    documentation: 'Integer type',
+    documentation: 'Read input as an integer',
     kind: vscode.CompletionItemKind.TypeParameter
   },
   {
     name: 'float',
-    documentation: 'Float type',
+    documentation: 'Read input as a floating-point number',
     kind: vscode.CompletionItemKind.TypeParameter
   }
 ];

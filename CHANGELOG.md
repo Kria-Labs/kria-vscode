@@ -2,26 +2,42 @@
 
 All notable changes to the "kria" extension will be documented in this file.
 
+## [1.5.0] - Unreleased
+
+### Fixed
+- Completion, syntax highlighting, built-in navigation, and documentation for Kria logical operators and built-ins
+- Import path completion now resolves from the current source file
+- Input-type diagnostics now accept the language's `|`-separated input types
+- Removed snippets for syntax not supported by Kria and added a union-input snippet
+- Replaced regex-only symbol discovery with comment/string-aware source analysis for nested functions, declarations, and references
+- Reworked formatting so it preserves string/comment text and range formatting only updates selected-line indentation
+- Removed the unreliable line-based unreachable-code warning
+
+### Changed
+- Updated the README to match the current Kria language and the extension's implemented features
+- Corrected the snippet count and merged the duplicate 1.4.0 changelog entries
+- Added reference search, rename, signature help, imported export completions, and semantic highlighting
+- Aligned extension metadata and badges at version 1.5.0
+- Diagnostics remain local/static because the Kria CLI does not currently expose a compile-only command; invoking its file command would execute the program
+- Added automated unit tests using Node.js's built-in test runner
+
 ## [1.4.0] - 2026-06-12
 
 ### Fixed
 - Bracket linter fixed
 
-## [1.4.0] - 2026-06-12
-
 ### Added
 - Diagnostics provider for real-time code analysis
-  - Undefined function and variable detection
   - Bracket matching validation
   - Invalid input type detection
-  - Unreachable code warnings
+  - Basic unreachable-code warning after return
 - Document formatter with Shift+Alt+F support
   - Automatic indentation based on bracket depth
   - Consistent operator and keyword spacing
 - Import path autocomplete for .krx files
 - Enhanced auto-closing pairs for all bracket types including immutable arrays (#[]) and multi-line strings (""")
 - Block comment support with /* */ syntax
-- Extended snippet library with 50+ templates
+- Extended snippet library with templates for supported Kria syntax
 - elseif keyword support
 - type() and wait() built-in functions
 
@@ -38,7 +54,7 @@ All notable changes to the "kria" extension will be documented in this file.
   - IntelliSense/Autocomplete with Ctrl+Space
 - For-in object loop syntax highlighting
 - Array element assignment pattern recognition
-- Code snippets: forobj, expfn, imp, impall
+- Code snippets: forobj, expfn, imp
 - TypeScript-based extension architecture
 
 ### Changed
@@ -52,12 +68,11 @@ All notable changes to the "kria" extension will be documented in this file.
 - Code snippets for common patterns
 - Support for break and continue statements
 - Support for for-in loops
-- Generic type syntax: <str>, <int>, <float>
 - Array support (mutable [] and immutable #[])
-- Array methods: push(), pop(), .length
+- Array mutation built-ins: push(), pop(), and array property .length
 - Object literals and property access
-- Object method: rmv() for property removal
-- Enhanced syntax highlighting for arrays, objects, and generics
+- Object property removal built-in: rmv()
+- Enhanced syntax highlighting for arrays, objects, and input type arguments
 
 ### Changed
 - Updated README with language documentation

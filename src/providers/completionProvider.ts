@@ -1,43 +1,57 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import {
   BUILTIN_FUNCTIONS,
   KEYWORDS,
-  ARRAY_METHODS,
-  OBJECT_METHODS,
-  GENERIC_TYPES
+  ARRAY_PROPERTIES,
+  INPUT_TYPES
 } from '../utils/definitions';
 import { KriaParser } from '../utils/parser';
 
 export class CompletionProvider implements vscode.CompletionItemProvider {
-  provideCompletionItems(
+  async provideCompletionItems(
     document: vscode.TextDocument,
     position: vscode.Position,
     token: vscode.CancellationToken,
     context: vscode.CompletionContext
-  ): vscode.CompletionItem[] {
+  ): Promise<vscode.CompletionItem[]> {
     const line = KriaParser.getLineAtPosition(document, position);
     const beforeCursor = line.substring(0, position.character);
     const items: vscode.CompletionItem[] = [];
+
+    const importedMember = beforeCursor.match(/\b([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)?$/);
+    if (importedMember) {
+      const imported = KriaParser.findImportStatement(document, importedMember[1]);
+      if (imported) {
+        return this.getImportedMemberCompletions(
+          document,
+          position,
+          importedMember[1],
+          imported.path,
+          importedMember[2] ?? ''
+        );
+      }
+    }
 
     // Context: Import paths (inside import statement)
     if (beforeCursor.includes('import') && (beforeCursor.includes('from') || beforeCursor.includes('"') || beforeCursor.includes("'"))) {
       return this.getImportPathCompletions(document, beforeCursor);
     }
 
-    // Context: Array methods (after arr.)
+    // Context: Array properties (after an expression and dot)
     if (beforeCursor.match(/\w+\.$/)) {
-      return this.getArrayCompletions();
+      return this.getArrayPropertyCompletions();
     }
 
-    // Context: Generic types (after <)
-    if (beforeCursor.match(/<$/)) {
-      return this.getGenericTypeCompletions();
+    // Context: input type arguments, including the next type in a union
+    if (/\binput\s*<[^>]*$/i.test(beforeCursor)) {
+      return this.getInputTypeCompletions();
     }
 
     // Context: General completions
     items.push(...this.getKeywordCompletions());
     items.push(...this.getBuiltInFunctionCompletions());
-    items.push(...this.getUserDefinedCompletions(document));
+    items.push(...this.getUserDefinedCompletions(document, position));
 
     return items;
   }
@@ -101,15 +115,15 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
   }
 
   /**
-   * Get array method completion items
+   * Get array property completion items
    */
-  private getArrayCompletions(): vscode.CompletionItem[] {
+  private getArrayPropertyCompletions(): vscode.CompletionItem[] {
     const items: vscode.CompletionItem[] = [];
 
-    for (const method of ARRAY_METHODS) {
-      const item = new vscode.CompletionItem(method.name, method.kind);
-      item.insertText = new vscode.SnippetString(method.snippet);
-      item.documentation = method.documentation;
+    for (const property of ARRAY_PROPERTIES) {
+      const item = new vscode.CompletionItem(property.name, property.kind);
+      item.insertText = new vscode.SnippetString(property.snippet);
+      item.documentation = property.documentation;
       items.push(item);
     }
 
@@ -117,28 +131,12 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
   }
 
   /**
-   * Get object method completion items
+   * Get valid input type completion items
    */
-  private getObjectCompletions(): vscode.CompletionItem[] {
+  private getInputTypeCompletions(): vscode.CompletionItem[] {
     const items: vscode.CompletionItem[] = [];
 
-    for (const method of OBJECT_METHODS) {
-      const item = new vscode.CompletionItem(method.name, method.kind);
-      item.insertText = new vscode.SnippetString(method.snippet);
-      item.documentation = method.documentation;
-      items.push(item);
-    }
-
-    return items;
-  }
-
-  /**
-   * Get generic type completion items (str, int, float)
-   */
-  private getGenericTypeCompletions(): vscode.CompletionItem[] {
-    const items: vscode.CompletionItem[] = [];
-
-    for (const type of GENERIC_TYPES) {
+    for (const type of INPUT_TYPES) {
       const item = new vscode.CompletionItem(type.name, type.kind);
       item.documentation = type.documentation;
       items.push(item);
@@ -147,10 +145,46 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
     return items;
   }
 
+  private async getImportedMemberCompletions(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    alias: string,
+    importPath: string,
+    memberPrefix: string
+  ): Promise<vscode.CompletionItem[]> {
+    const resolvedPath = KriaParser.resolveImportPath(document.uri.fsPath, importPath);
+    let moduleDocument: vscode.TextDocument;
+    try {
+      moduleDocument = await vscode.workspace.openTextDocument(vscode.Uri.file(resolvedPath));
+    } catch (error) {
+      console.warn(`Kria: Unable to open imported module '${resolvedPath}':`, error);
+      return [];
+    }
+    const range = new vscode.Range(
+      new vscode.Position(position.line, position.character - memberPrefix.length),
+      position
+    );
+
+    return KriaParser.findFunctionDefinitions(moduleDocument)
+      .filter(func => func.isExported)
+      .map(func => {
+        const item = new vscode.CompletionItem(func.name, vscode.CompletionItemKind.Function);
+        item.detail = `fn ${func.name}(${func.params.join(', ')})`;
+        item.documentation = `Exported by ${alias}`;
+        item.range = range;
+        item.insertText = new vscode.SnippetString(
+          func.params.length
+            ? `${func.name}(\${1:${func.params[0]}})`
+            : `${func.name}()`
+        );
+        return item;
+      });
+  }
+
   /**
    * Get import path completion items for .krx files
    */
-  private getImportPathCompletions(document: vscode.TextDocument, beforeCursor: string): vscode.CompletionItem[] {
+  private async getImportPathCompletions(document: vscode.TextDocument, beforeCursor: string): Promise<vscode.CompletionItem[]> {
     const items: vscode.CompletionItem[] = [];
 
     // Extract current path from import statement
@@ -169,36 +203,28 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
     }
 
     const currentPath = pathMatch[1];
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (!workspaceFolder) return items;
-
+    const baseDir = path.dirname(document.uri.fsPath);
+    const fullPath = path.resolve(baseDir, currentPath);
+    const dirPath = currentPath.endsWith('/') || currentPath.endsWith('\\')
+      ? fullPath
+      : path.dirname(fullPath);
+    let entries: [string, vscode.FileType][];
     try {
-      const fs = require('fs');
-      const path = require('path');
-
-      const baseDir = currentPath.startsWith('../') ? workspaceFolder.uri.fsPath : workspaceFolder.uri.fsPath;
-      const fullPath = path.join(baseDir, currentPath);
-      const dirPath = currentPath.endsWith('/') ? fullPath : path.dirname(fullPath);
-
-      if (fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory()) {
-        const files = fs.readdirSync(dirPath);
-
-        for (const file of files) {
-          const filePath = path.join(dirPath, file);
-          const stats = fs.statSync(filePath);
-
-          if (stats.isDirectory()) {
-            const item = new vscode.CompletionItem(file + '/', vscode.CompletionItemKind.Folder);
-            items.push(item);
-          } else if (file.endsWith('.krx')) {
-            const item = new vscode.CompletionItem(file, vscode.CompletionItemKind.File);
-            item.detail = 'Kria module';
-            items.push(item);
-          }
-        }
-      }
+      entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(dirPath));
     } catch (error) {
-      // Silently fail if fs operations don't work
+      if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') return items;
+      console.warn(`Kria: Unable to list import directory '${dirPath}':`, error);
+      return items;
+    }
+
+    for (const [file, type] of entries) {
+      if (type === vscode.FileType.Directory) {
+        items.push(new vscode.CompletionItem(`${file}/`, vscode.CompletionItemKind.Folder));
+      } else if (file.endsWith('.krx')) {
+        const item = new vscode.CompletionItem(file, vscode.CompletionItemKind.File);
+        item.detail = 'Kria module';
+        items.push(item);
+      }
     }
 
     return items;
@@ -207,8 +233,12 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
   /**
    * Get user-defined symbols (functions, variables) for completion
    */
-  private getUserDefinedCompletions(document: vscode.TextDocument): vscode.CompletionItem[] {
+  private getUserDefinedCompletions(
+    document: vscode.TextDocument,
+    position: vscode.Position
+  ): vscode.CompletionItem[] {
     const items: vscode.CompletionItem[] = [];
+    const analysis = KriaParser.analyze(document);
 
     // User-defined functions
     const functions = KriaParser.findFunctionDefinitions(document);
@@ -222,8 +252,27 @@ export class CompletionProvider implements vscode.CompletionItemProvider {
     // User-defined variables
     const variables = KriaParser.findVariableDeclarations(document);
     for (const variable of variables) {
-      const item = new vscode.CompletionItem(variable.name, vscode.CompletionItemKind.Variable);
-      item.documentation = 'User-defined variable';
+      const symbol = analysis.symbols.find(item => item.name === variable.name && item.kind === 'variable');
+      const item = new vscode.CompletionItem(
+        variable.name,
+        symbol?.isCallable ? vscode.CompletionItemKind.Function : vscode.CompletionItemKind.Variable
+      );
+      if (symbol?.isCallable) {
+        item.detail = `fn ${variable.name}(${symbol.params.join(', ')})`;
+        item.documentation = 'User-defined anonymous function';
+      } else {
+        item.documentation = 'User-defined variable';
+      }
+      items.push(item);
+    }
+
+    for (const parameter of analysis.symbols.filter(symbol =>
+      symbol.kind === 'parameter' &&
+      position.isAfterOrEqual(symbol.scope.start) &&
+      position.isBeforeOrEqual(symbol.scope.end)
+    )) {
+      const item = new vscode.CompletionItem(parameter.name, vscode.CompletionItemKind.Variable);
+      item.documentation = 'Function parameter';
       items.push(item);
     }
 

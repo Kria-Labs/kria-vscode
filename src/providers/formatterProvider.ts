@@ -1,121 +1,153 @@
 import * as vscode from 'vscode';
 
+type Delimiter = '{' | '[';
+
 export class FormatterProvider implements vscode.DocumentFormattingEditProvider {
-  async provideDocumentFormattingEdits(
+  provideDocumentFormattingEdits(
     document: vscode.TextDocument,
-    options: vscode.FormattingOptions,
-    token: vscode.CancellationToken
-  ): Promise<vscode.TextEdit[]> {
-    const edits: vscode.TextEdit[] = [];
-    const text = document.getText();
-    const lines = text.split('\n');
-    let formattedText = '';
+    options: vscode.FormattingOptions
+  ): vscode.TextEdit[] {
+    const formatted = this.format(document, options);
+    if (formatted === document.getText()) return [];
+    return [vscode.TextEdit.replace(
+      new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)),
+      formatted
+    )];
+  }
 
-    let indentLevel = 0;
-    const indentStr = ' '.repeat(options.tabSize || 2);
+  format(document: vscode.TextDocument, options: vscode.FormattingOptions): string {
+    const lines = document.getText().split(/\r\n|\r|\n/);
+    const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+    const indentUnit = options.insertSpaces ? ' '.repeat(Math.max(1, options.tabSize || 2)) : '\t';
+    const delimiters: Delimiter[] = [];
+    let inBlockComment = false;
+    let stringDelimiter: '"' | '"""' | undefined;
 
-    for (let i = 0; i < lines.length; i++) {
-      let line = lines[i];
+    return lines.map(line => {
+      if (inBlockComment || stringDelimiter === '"""') {
+        this.updateDelimitersAndLexicalState(line, delimiters, state => {
+          inBlockComment = state.inBlockComment;
+          stringDelimiter = state.stringDelimiter;
+        }, inBlockComment, stringDelimiter);
+        return line;
+      }
+
       const trimmed = line.trim();
+      if (!trimmed) return '';
 
-      // Skip empty lines
-      if (!trimmed) {
-        formattedText += '\n';
-        continue;
+      const isInsideComment = line.trimStart().startsWith('/*');
+      const isInsideString = stringDelimiter !== undefined;
+      if (isInsideComment || isInsideString) {
+        this.updateDelimitersAndLexicalState(line, delimiters, state => {
+          inBlockComment = state.inBlockComment;
+          stringDelimiter = state.stringDelimiter;
+        }, inBlockComment, stringDelimiter);
+        return line;
       }
 
-      // Decrease indent for closing braces
-      if (trimmed.startsWith('}') || trimmed.startsWith(']')) {
-        indentLevel = Math.max(0, indentLevel - 1);
+      let closeCount = 0;
+      for (const char of trimmed) {
+        if (char === '}' || char === ']') closeCount++;
+        else break;
       }
+      const indentation = Math.max(0, delimiters.length - closeCount);
+      const formattedLine = indentUnit.repeat(indentation) + trimmed;
+      this.updateDelimitersAndLexicalState(trimmed, delimiters, state => {
+        inBlockComment = state.inBlockComment;
+        stringDelimiter = state.stringDelimiter;
+      }, inBlockComment, stringDelimiter);
+      return formattedLine;
+    }).join(eol);
+  }
 
-      // Apply indentation
-      let formattedLine = indentStr.repeat(indentLevel) + trimmed;
+  formatRange(
+    document: vscode.TextDocument,
+    range: vscode.Range,
+    options: vscode.FormattingOptions
+  ): vscode.TextEdit[] {
+    const formattedLines = this.format(document, options).split(/\r\n|\r|\n/);
+    const edits: vscode.TextEdit[] = [];
+    for (let lineNumber = range.start.line; lineNumber <= range.end.line; lineNumber++) {
+      const line = document.lineAt(lineNumber);
+      const original = line.text;
+      const desired = formattedLines[lineNumber] ?? original;
+      const originalContent = original.trimStart();
+      const desiredContent = desired.trimStart();
+      if (originalContent !== desiredContent) continue;
 
-      // Add spacing around operators
-      formattedLine = this.formatOperators(formattedLine);
-
-      // Add spacing after keywords
-      formattedLine = this.formatKeywords(formattedLine);
-
-      formattedText += formattedLine;
-      if (i < lines.length - 1) {
-        formattedText += '\n';
-      }
-
-      // Increase indent for opening braces
-      if (trimmed.endsWith('{') || trimmed.endsWith('[')) {
-        indentLevel++;
+      const originalIndent = original.slice(0, original.length - originalContent.length);
+      const desiredIndent = desired.slice(0, desired.length - desiredContent.length);
+      if (originalIndent !== desiredIndent) {
+        edits.push(vscode.TextEdit.replace(
+          new vscode.Range(line.range.start, new vscode.Position(lineNumber, originalIndent.length)),
+          desiredIndent
+        ));
       }
     }
-
-    if (text !== formattedText) {
-      const range = new vscode.Range(
-        document.positionAt(0),
-        document.positionAt(text.length)
-      );
-      edits.push(new vscode.TextEdit(range, formattedText));
-    }
-
     return edits;
   }
 
-  private formatOperators(line: string): string {
-    // Add spacing around operators: =, ==, !=, +, -, *, /, >, <, >=, <=
-    const operators = ['==', '!=', '>=', '<=', '=', '+', '-', '*', '/', '>', '<'];
+  private updateDelimitersAndLexicalState(
+    line: string,
+    delimiters: Delimiter[],
+    update: (state: { inBlockComment: boolean; stringDelimiter: '"' | '"""' | undefined }) => void,
+    initialComment: boolean,
+    initialString: '"' | '"""' | undefined
+  ): void {
+    let inBlockComment = initialComment;
+    let stringDelimiter = initialString;
 
-    let result = line;
-    for (const op of operators) {
-      if (op === '=') {
-        // Special handling for '=' to avoid '==' and '!='
-        result = result.replace(/([^!=<>])\s*=\s*([^=])/g, '$1 = $2');
-      } else {
-        const escaped = op.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`([^\\s${escaped}])\\s*${escaped}\\s*`, 'g');
-        result = result.replace(regex, `$1 ${op} `);
+    for (let i = 0; i < line.length; i++) {
+      if (inBlockComment) {
+        if (line.startsWith('*/', i)) {
+          inBlockComment = false;
+          i++;
+        }
+        continue;
       }
+
+      if (stringDelimiter) {
+        if (line[i] === '\\') {
+          i++;
+        } else if (line.startsWith(stringDelimiter, i)) {
+          i += stringDelimiter.length - 1;
+          stringDelimiter = undefined;
+        }
+        continue;
+      }
+
+      if (line.startsWith('//', i)) break;
+      if (line.startsWith('/*', i)) {
+        inBlockComment = true;
+        i++;
+        continue;
+      }
+      if (line.startsWith('"""', i)) {
+        stringDelimiter = '"""';
+        i += 2;
+        continue;
+      }
+      if (line[i] === '"') {
+        stringDelimiter = '"';
+        continue;
+      }
+
+      if (line[i] === '{' || line[i] === '[') delimiters.push(line[i] as Delimiter);
+      else if ((line[i] === '}' || line[i] === ']') && delimiters.length > 0) delimiters.pop();
     }
 
-    return result;
-  }
-
-  private formatKeywords(line: string): string {
-    // Add spacing after keywords
-    const keywords = ['if', 'elseif', 'else', 'while', 'for', 'fn', 'set', 'return', 'import'];
-
-    let result = line;
-    for (const keyword of keywords) {
-      const regex = new RegExp(`\\b${keyword}\\s*\\(`, 'g');
-      result = result.replace(regex, `${keyword} (`);
-
-      // Special handling for fn keyword
-      if (keyword === 'fn') {
-        const fnRegex = /\bfn\s+(\w+)\s*\(/g;
-        result = result.replace(fnRegex, 'fn $1(');
-      }
-
-      // Special handling for set keyword
-      if (keyword === 'set') {
-        const setRegex = /\bset\s+(\w+)\s*=/g;
-        result = result.replace(setRegex, 'set $1 =');
-      }
-    }
-
-    return result;
+    update({ inBlockComment, stringDelimiter });
   }
 }
 
 export class RangeFormattingProvider implements vscode.DocumentRangeFormattingEditProvider {
-  async provideDocumentRangeFormattingEdits(
+  private readonly formatter = new FormatterProvider();
+
+  provideDocumentRangeFormattingEdits(
     document: vscode.TextDocument,
     range: vscode.Range,
-    options: vscode.FormattingOptions,
-    token: vscode.CancellationToken
-  ): Promise<vscode.TextEdit[]> {
-    const formatter = new FormatterProvider();
-    
-    // For now, format the entire document
-    // In a real implementation, you'd only format the selected range
-    return formatter.provideDocumentFormattingEdits(document, options, token);
+    options: vscode.FormattingOptions
+  ): vscode.TextEdit[] {
+    return this.formatter.formatRange(document, range, options);
   }
 }

@@ -6,16 +6,31 @@
 			"include": "#comments"
 		},
 		{
-			"include": "#keywords"
+			"include": "#function-declarations"
+		},
+		{
+			"include": "#variable-declarations"
 		},
 		{
 			"include": "#for-in-object"
+		},
+		{
+			"include": "#loop-bindings"
+		},
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#generics"
 		},
 		{
 			"include": "#array-assignment"
 		},
 		{
 			"include": "#builtins"
+		},
+		{
+			"include": "#function-calls"
 		},
 		{
 			"include": "#arrays"
@@ -36,10 +51,57 @@
 			"include": "#operators"
 		},
 		{
-			"include": "#generics"
+			"include": "#logical-operators"
 		}
 	],
 	"repository": {
+		"function-declarations": {
+			"patterns": [
+				{
+					"name": "meta.function.kria",
+					"match": "\\b(export\\s+)?(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+					"captures": {
+						"1": { "name": "keyword.control.kria" },
+						"2": { "name": "keyword.control.kria" },
+						"3": { "name": "entity.name.function.kria" }
+					}
+				}
+			]
+		},
+		"variable-declarations": {
+			"patterns": [
+				{
+					"name": "meta.variable.declaration.kria",
+					"match": "\\b(set)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+					"captures": {
+						"1": { "name": "keyword.control.kria" },
+						"2": { "name": "variable.other.kria" }
+					}
+				}
+			]
+		},
+		"loop-bindings": {
+			"patterns": [
+				{
+					"name": "meta.loop.kria",
+					"match": "\\b(for)\\s+(?:([A-Za-z_][A-Za-z0-9_]*)\\s*,\\s*)?([A-Za-z_][A-Za-z0-9_]*)\\s+(in)\\b",
+					"captures": {
+						"1": { "name": "keyword.control.kria" },
+						"2": { "name": "variable.other.kria" },
+						"3": { "name": "variable.other.kria" },
+						"4": { "name": "keyword.control.kria" }
+					}
+				}
+			]
+		},
+		"function-calls": {
+			"patterns": [
+				{
+					"name": "entity.name.function.kria",
+					"match": "\\b(?!if\\b|elseif\\b|else\\b|while\\b|for\\b|in\\b|fn\\b|set\\b|return\\b|break\\b|continue\\b|export\\b|import\\b|from\\b)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()"
+				}
+			]
+		},
 		"comments": {
 			"patterns": [
 				{
@@ -76,48 +138,62 @@
 		"generics": {
 			"patterns": [
 				{
-					"name": "entity.name.type.kria",
-					"match": "<(str|int|float)>"
+					"name": "meta.input.type.kria",
+					"begin": "\\binput\\s*(?=<)",
+					"beginCaptures": {
+						"0": { "name": "support.function.builtin.kria" }
+					},
+					"end": ">",
+					"patterns": [
+						{
+							"name": "entity.name.type.kria",
+							"match": "\\b(str|int|float)\\b"
+						}
+					]
 				}
 			]
 		},
 		"arrays": {
 			"patterns": [
 				{
-					"name": "meta.array.kria",
-					"begin": "\\[",
-					"end": "\\]",
-					"patterns": [
-						{
-							"include": "#numbers"
-						},
-						{
-							"include": "#strings"
-						},
-						{
-							"include": "#booleans"
-						}
-					]
-				},
-				{
 					"name": "meta.array.immutable.kria",
 					"begin": "#\\[",
 					"end": "\\]",
 					"patterns": [
-						{
-							"include": "#numbers"
-						},
-						{
-							"include": "#strings"
-						},
-						{
-							"include": "#booleans"
-						}
+						{ "include": "#comments" },
+						{ "include": "#strings" },
+						{ "include": "#numbers" },
+						{ "include": "#booleans" },
+						{ "include": "#arrays" },
+						{ "include": "#objects" },
+						{ "include": "#generics" },
+						{ "include": "#builtins" },
+						{ "include": "#function-calls" },
+						{ "include": "#logical-operators" },
+						{ "include": "#operators" }
 					]
 				},
 				{
 					"name": "meta.array.access.kria",
 					"match": "\\[\\s*\\d+\\s*\\]"
+				},
+				{
+					"name": "meta.array.kria",
+					"begin": "\\[",
+					"end": "\\]",
+					"patterns": [
+						{ "include": "#comments" },
+						{ "include": "#strings" },
+						{ "include": "#numbers" },
+						{ "include": "#booleans" },
+						{ "include": "#arrays" },
+						{ "include": "#objects" },
+						{ "include": "#generics" },
+						{ "include": "#builtins" },
+						{ "include": "#function-calls" },
+						{ "include": "#logical-operators" },
+						{ "include": "#operators" }
+					]
 				}
 			]
 		},
@@ -129,21 +205,18 @@
 					"end": "\\}",
 					"patterns": [
 						{
-							"name": "variable.other.kria",
+							"name": "variable.other.property.kria",
 							"match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*:"
 						},
-						{
-							"include": "#strings"
-						},
-						{
-							"include": "#numbers"
-						},
-						{
-							"include": "#booleans"
-						},
-						{
-							"include": "#arrays"
-						}
+						{ "include": "#comments" },
+						{ "include": "#strings" },
+						{ "include": "#numbers" },
+						{ "include": "#booleans" },
+						{ "include": "#arrays" },
+						{ "include": "#objects" },
+						{ "include": "#builtins" },
+						{ "include": "#logical-operators" },
+						{ "include": "#operators" }
 					]
 				},
 				{
@@ -161,6 +234,14 @@
 				{
 					"name": "keyword.operator.kria",
 					"match": "(\\+|-|\\*|/|==|!=|>=|<=|>|<|=)"
+				}
+			]
+		},
+		"logical-operators": {
+			"patterns": [
+				{
+					"name": "keyword.operator.logical.kria",
+					"match": "\\b(and|or|not)\\b"
 				}
 			]
 		},
@@ -194,7 +275,7 @@
 			"patterns": [
 				{
 					"name": "constant.numeric.kria",
-					"match": "\\b\\d+(\\.\\d+)?\\b"
+					"match": "(?<![\\w.])(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?(?![\\w.])"
 				}
 			]
 		},

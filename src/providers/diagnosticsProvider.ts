@@ -1,199 +1,90 @@
 import * as vscode from 'vscode';
-import { KriaParser } from '../utils/parser';
+import { KriaParser, KriaToken } from '../utils/parser';
+
+const validInputTypes = new Set(['str', 'int', 'float']);
 
 export class DiagnosticsProvider {
-  private diagnosticCollection: vscode.DiagnosticCollection;
+  private readonly diagnosticCollection: vscode.DiagnosticCollection;
 
   constructor(context: vscode.ExtensionContext) {
     this.diagnosticCollection = vscode.languages.createDiagnosticCollection('kria');
-    context.subscriptions.push(this.diagnosticCollection);
-
-    // Register on document change
-    vscode.workspace.onDidOpenTextDocument(doc => this.validate(doc));
-    vscode.workspace.onDidChangeTextDocument(e => this.validate(e.document));
-    vscode.workspace.onDidSaveTextDocument(doc => this.validate(doc));
+    context.subscriptions.push(
+      this.diagnosticCollection,
+      vscode.workspace.onDidOpenTextDocument(document => this.validate(document)),
+      vscode.workspace.onDidChangeTextDocument(event => this.validate(event.document)),
+      vscode.workspace.onDidSaveTextDocument(document => this.validate(document)),
+      vscode.workspace.onDidCloseTextDocument(document => this.diagnosticCollection.delete(document.uri))
+    );
+    vscode.workspace.textDocuments.forEach(document => this.validate(document));
   }
 
   private validate(document: vscode.TextDocument): void {
     if (document.languageId !== 'kria') return;
 
+    const analysis = KriaParser.analyze(document);
     const diagnostics: vscode.Diagnostic[] = [];
-    const text = document.getText();
-    const lines = text.split('\n');
 
-    // Get all defined functions and variables
-    const functions = KriaParser.findFunctionDefinitions(document);
-    const variables = KriaParser.findVariableDeclarations(document);
-    const functionNames = new Set(functions.map(f => f.name));
-    const variableNames = new Set(variables.map(v => v.name));
+    for (const issue of analysis.delimiters) {
+      const isOpening = ['(', '[', '{'].includes(issue.token.value);
+      const message = isOpening
+        ? `Unclosed opening bracket '${issue.token.value}'. Expected '${issue.expected}'.`
+        : issue.expected
+          ? `Mismatched closing bracket '${issue.token.value}'. Expected '${issue.expected}'.`
+          : `Unmatched closing bracket '${issue.token.value}'.`;
+      diagnostics.push(this.createDiagnostic(document, issue.token, message));
+    }
 
-    // Built-in functions that don't need definitions
-    const builtins = new Set(['print', 'input', 'push', 'pop', 'rmv', 'type', 'wait']);
+    for (let i = 0; i < analysis.tokens.length; i++) {
+      const token = analysis.tokens[i];
+      if (token.value !== 'input' || analysis.tokens[i + 1]?.value !== '<') continue;
 
-    // Check brackets globally (across all lines)
-    const bracketIssues = this.checkBracketsGlobal(text, lines);
-    diagnostics.push(...bracketIssues);
+      let end = i + 2;
+      while (end < analysis.tokens.length &&
+        analysis.tokens[end].value !== '>' &&
+        analysis.tokens[end].kind !== 'newline') end++;
+      if (analysis.tokens[end]?.value !== '>') continue;
 
-    // Check each line for other issues
-    lines.forEach((line, lineIndex) => {
-      // Skip comments
-      if (line.trim().startsWith('//') || line.trim().startsWith('/*')) {
-        return;
+      const typeTokens = analysis.tokens.slice(i + 2, end);
+      const types = typeTokens.filter(item => item.kind === 'identifier').map(item => item.value);
+      const separators = typeTokens.filter(item => item.value === '|').length;
+      const valid = types.length > 0 &&
+        types.every(type => validInputTypes.has(type)) &&
+        separators === types.length - 1 &&
+        typeTokens.every((item, index) => index % 2 === 0
+          ? item.kind === 'identifier'
+          : item.value === '|');
+
+      if (!valid) {
+        const endToken = analysis.tokens[end];
+        const range = new vscode.Range(
+          document.positionAt(token.start),
+          document.positionAt(endToken.end)
+        );
+        const diagnostic = new vscode.Diagnostic(
+          range,
+          "Invalid input type selector. Use 'str', 'int', or 'float', optionally separated by '|'.",
+          vscode.DiagnosticSeverity.Error
+        );
+        diagnostic.source = 'Kria parser';
+        diagnostics.push(diagnostic);
       }
-
-      // Check for type mismatches in input statements
-      const inputTypeIssues = this.checkInputTypes(line, lineIndex);
-      diagnostics.push(...inputTypeIssues);
-
-      // Check for unreachable code after return
-      if (lineIndex > 0) {
-        const prevLine = lines[lineIndex - 1].trim();
-        if (prevLine === 'return' || prevLine.startsWith('return ')) {
-          if (line.trim() && !line.trim().startsWith('//') && !line.trim().startsWith('}')) {
-            const range = new vscode.Range(
-              new vscode.Position(lineIndex, 0),
-              new vscode.Position(lineIndex, line.length)
-            );
-            const diagnostic = new vscode.Diagnostic(
-              range,
-              'Unreachable code after return statement',
-              vscode.DiagnosticSeverity.Warning
-            );
-            diagnostic.source = 'Kria Linter';
-            diagnostics.push(diagnostic);
-          }
-        }
-      }
-    });
+    }
 
     this.diagnosticCollection.set(document.uri, diagnostics);
   }
 
-  private checkBracketsGlobal(text: string, lines: string[]): vscode.Diagnostic[] {
-    const diagnostics: vscode.Diagnostic[] = [];
-    const stack: Array<{ char: string; line: number; col: number }> = [];
-    let inString = false;
-    let inBlockComment = false;
-
-    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-      const line = lines[lineIndex];
-
-      for (let i = 0; i < line.length; i++) {
-        const char = line[i];
-        const nextChar = i + 1 < line.length ? line[i + 1] : '';
-
-        // Handle block comments
-        if (!inString && char === '/' && nextChar === '*') {
-          inBlockComment = true;
-          i++;
-          continue;
-        }
-        if (inBlockComment && char === '*' && nextChar === '/') {
-          inBlockComment = false;
-          i++;
-          continue;
-        }
-        if (inBlockComment) continue;
-
-        // Handle strings
-        if (char === '"' && (i === 0 || line[i - 1] !== '\\')) {
-          inString = !inString;
-          continue;
-        }
-        if (inString) continue;
-
-        // Handle single-line comments
-        if (char === '/' && nextChar === '/') break;
-
-        // Track brackets
-        if (char === '{' || char === '(' || char === '[') {
-          stack.push({ char, line: lineIndex, col: i });
-        } else if (char === '}' || char === ')' || char === ']') {
-          if (stack.length === 0) {
-            const range = new vscode.Range(
-              new vscode.Position(lineIndex, i),
-              new vscode.Position(lineIndex, i + 1)
-            );
-            const diagnostic = new vscode.Diagnostic(
-              range,
-              `Unmatched closing bracket '${char}'`,
-              vscode.DiagnosticSeverity.Error
-            );
-            diagnostic.source = 'Kria Linter';
-            diagnostics.push(diagnostic);
-          } else {
-            const last = stack[stack.length - 1];
-            const matches = (last.char === '{' && char === '}') ||
-                           (last.char === '(' && char === ')') ||
-                           (last.char === '[' && char === ']');
-            if (!matches) {
-              const range = new vscode.Range(
-                new vscode.Position(lineIndex, i),
-                new vscode.Position(lineIndex, i + 1)
-              );
-              const diagnostic = new vscode.Diagnostic(
-                range,
-                `Mismatched bracket: expected '${last.char === '{' ? '}' : last.char === '(' ? ')' : ']'}' but got '${char}'`,
-                vscode.DiagnosticSeverity.Error
-              );
-              diagnostic.source = 'Kria Linter';
-              diagnostics.push(diagnostic);
-            } else {
-              stack.pop();
-            }
-          }
-        }
-      }
-    }
-
-    // Report unclosed brackets at end of file
-    if (stack.length > 0) {
-      for (const unclosed of stack) {
-        const range = new vscode.Range(
-          new vscode.Position(unclosed.line, unclosed.col),
-          new vscode.Position(unclosed.line, unclosed.col + 1)
-        );
-        const closeChar = unclosed.char === '{' ? '}' : unclosed.char === '(' ? ')' : ']';
-        const diagnostic = new vscode.Diagnostic(
-          range,
-          `Unclosed bracket '${unclosed.char}'. Expected '${closeChar}'`,
-          vscode.DiagnosticSeverity.Error
-        );
-        diagnostic.source = 'Kria Linter';
-        diagnostics.push(diagnostic);
-      }
-    }
-
-    return diagnostics;
-  }
-
-  private checkInputTypes(line: string, lineIndex: number): vscode.Diagnostic[] {
-    const diagnostics: vscode.Diagnostic[] = [];
-    
-    // Check for input<type> with valid types
-    const inputPattern = /input\s*<\s*([^>]+)\s*>/g;
-    let match;
-
-    while ((match = inputPattern.exec(line)) !== null) {
-      const type = match[1].trim();
-      const validTypes = ['str', 'int', 'float'];
-
-      if (!validTypes.includes(type)) {
-        const range = new vscode.Range(
-          new vscode.Position(lineIndex, match.index),
-          new vscode.Position(lineIndex, match.index + match[0].length)
-        );
-        const diagnostic = new vscode.Diagnostic(
-          range,
-          `Invalid input type '${type}'. Use 'str', 'int', or 'float'`,
-          vscode.DiagnosticSeverity.Error
-        );
-        diagnostic.source = 'Kria Linter';
-        diagnostics.push(diagnostic);
-      }
-    }
-
-    return diagnostics;
+  private createDiagnostic(
+    document: vscode.TextDocument,
+    token: KriaToken,
+    message: string
+  ): vscode.Diagnostic {
+    const range = new vscode.Range(
+      document.positionAt(token.start),
+      document.positionAt(token.end)
+    );
+    const diagnostic = new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error);
+    diagnostic.source = 'Kria parser';
+    return diagnostic;
   }
 
   public clear(uri: vscode.Uri): void {

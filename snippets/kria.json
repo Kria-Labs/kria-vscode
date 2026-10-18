@@ -88,6 +88,13 @@
     ],
     "description": "Get float input from user"
   },
+  "Numeric or String Input": {
+    "prefix": "inputunion",
+    "body": [
+      "set ${1:value} = input<int|float|str>(\"${2:Value: }\")"
+    ],
+    "description": "Accept an integer, float, or string from user input"
+  },
   "Print Statement": {
     "prefix": "print",
     "body": [
@@ -160,28 +167,6 @@
     ],
     "description": "For-in loop for objects (key-value pairs)"
   },
-  "Try-Catch Block": {
-    "prefix": "try",
-    "body": [
-      "try {",
-      "\t$1",
-      "} catch {",
-      "\t$2",
-      "}"
-    ],
-    "description": "Try-catch error handling"
-  },
-  "Switch-Case Block": {
-    "prefix": "switch",
-    "body": [
-      "set result = case ${1:value} {",
-      "\t${2:pattern1} => $3,",
-      "\t${4:pattern2} => $5,",
-      "\t_ => $6",
-      "}"
-    ],
-    "description": "Switch-case statement"
-  },
   "Early Return": {
     "prefix": "guard",
     "body": [
@@ -191,18 +176,12 @@
     ],
     "description": "Early return guard clause"
   },
-  "Ternary Operator": {
-    "prefix": "ternary",
-    "body": [
-      "set ${1:result} = if (${2:condition}) { ${3:value1} } else { ${4:value2} }"
-    ],
-    "description": "Ternary conditional expression"
-  },
   "Object Iteration": {
     "prefix": "iterobj",
     "body": [
       "for key, value in ${1:object} {",
-      "\tprint(\"\\${key}: \\${value}\")",
+      "\tprint(key)",
+      "\tprint(value)",
       "}"
     ],
     "description": "Iterate over object key-value pairs"
@@ -215,16 +194,6 @@
       "}"
     ],
     "description": "Iterate over array items"
-  },
-  "Function with Return Type": {
-    "prefix": "fnret",
-    "body": [
-      "fn ${1:functionName}(${2:param}: ${3:type}): ${4:returnType} {",
-      "\t$5",
-      "\treturn ${6:result}",
-      "}"
-    ],
-    "description": "Function with type annotations"
   },
   "Nested Function": {
     "prefix": "fnested",
@@ -335,12 +304,5 @@
       "import ${1:moduleName} from \"${2:./path.krx}\""
     ],
     "description": "Import a module"
-  },
-  "Import All": {
-    "prefix": "impall",
-    "body": [
-      "import * as ${1:name} from \"${2:./path.krx}\""
-    ],
-    "description": "Import all exports from module"
   }
 }
